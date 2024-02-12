@@ -1,4 +1,4 @@
-# BlueSky-PDS Deployment Script
+# BlueSky-PDS Deployment and Hardening Script
 
 This script automates the initial deployment and security hardening of BlueSky-PDS and its components using Docker and bash scripting. 
 
