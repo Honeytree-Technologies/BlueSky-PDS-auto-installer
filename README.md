@@ -1,13 +1,10 @@
 # BlueSky-PDS Deployment Script
 
-This script is designed to automate the initial deployment of BlueSky-PDS and its related components using Docker and bash scripting.
+This script automates the initial deployment and security hardening of BlueSky-PDS and its components using Docker and bash scripting. 
 
-This is a free-to-use Bash script that allows you to easily install BlueSky-PDS and enhance its security with a single command. You can utilize this script on a blank server or an existing server, making it suitable for both new and experienced Bluesky-social/PDS server owners.
-BlueSky-PDS
-The script handles the entire BlueSky-PDS installation process, including activating the admin user. It ensures the security of your BlueSky-PDS server by changing the SSH port, installing a firewall, and automatically updating the firewall rules to reflect the new SSH port and installing Fail2Ban with progressive blocking rules.
+It's a free Bash script that simplifies BlueSky-PDS installation and enhances security with a single command. Whether you're setting up a new server or upgrading an existing one, this script is suitable for all levels of Bluesky-social/PDS server owners. It handles the entire installation process, including activating the admin user, securing the server by changing the SSH port, installing a firewall, updating firewall rules, and setting up Fail2Ban for progressive blocking. 
 
-The Bash file is unencrypted, freely usable, and redistributable (though credit to Honeytree Technologies is required).
-
+The unencrypted Bash file is freely usable and redistributable, with credit to Honeytree Technologies required.
 
 
 ## About the Script
