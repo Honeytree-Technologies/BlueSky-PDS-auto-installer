@@ -7,7 +7,7 @@ cat <<start_content
 "#              Created by Honeytree Technologies, LLC                #"
 "#                        www.honeytreetech.com                       #"
 "#                                                                    #"
-"#                    Bluesky-social/pds: honeytree.social            #"
+"#                    Social: honeytree.social                        #"
 "#                    Email: info@honeytreetech.com                   #"
 "#                                                                    #"
 "######################################################################"
