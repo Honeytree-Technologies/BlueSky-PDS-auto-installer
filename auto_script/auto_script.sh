@@ -72,10 +72,10 @@ while true; do
   fi
 done
 
-
-read -p "Enter the DB user name (Default: pds): " db_user
+temp_user="pds_$(random_string 8)"
+read -p "Enter the DB user name (Default: ${temp_user}): " db_user
 if [ -z "${db_user}" ]; then
-  db_user=pds
+  db_user=${temp_user}
 fi
 
 
@@ -96,7 +96,7 @@ echo "Your db name is ${db_name}"
 
 
 while true; do
-  read -p "Enter a port number (1-65535, excluding 80, 443, and 3000): " port
+  read -p "Enter new ssh port number (1-65535, excluding 80, 443, and 3000): " port
   # Validate the input
   validate_port "$port"
   case $? in
@@ -165,11 +165,32 @@ sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose
 sudo apt  install jq
 sudo apt  install curl
-work_dir=~/bluesky-social-pds
+work_dir=/pds
 sudo rm -rf "${work_dir}"
 mkdir "${work_dir}"
 touch "${work_dir}/docker-compose.yml"
+touch "/etc/systemd/system/pds.service"
 
+
+cat <<SYSTEMD_UNIT_FILE > "/etc/systemd/system/pds.service"
+[Unit]
+Description=Bluesky PDS Service
+Documentation=https://github.com/bluesky-social/pds
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/pds
+ExecStart=/usr/bin/docker compose --file /pds/docker-compose.yml up --detach
+ExecStop=/usr/bin/docker compose --file /pds/docker-compose.yml down
+
+[Install]
+WantedBy=default.target
+SYSTEMD_UNIT_FILE
+
+sudo systemctl daemon-reload
 
 
 cat <<docker_content > "${work_dir}/docker-compose.yml"
@@ -1490,6 +1511,6 @@ sudo systemctl restart fail2ban
 echo "Congratulations your setup is done"
 echo "database user: ${db_user}, password: ${db_password} and database: ${db_name}"
 echo "Invite code: $INVITE_CODE and PDS Admin password: $PDS_ADMIN_PASSWORD"
-echo "The Ghost instance can be accessed on https://${domain_name}"
+echo "The Bluesky-social/pds instance can be accessed on https://${domain_name}"
 echo "Now SSH port is ${ssh_port}"
 
