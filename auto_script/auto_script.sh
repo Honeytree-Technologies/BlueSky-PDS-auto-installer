@@ -1,5 +1,4 @@
-
-cat <<start_content 
+cat <<start_content
 "######################################################################"
 "#                                                                    #"
 "#            Bluesky-social/pds Installation and Hardening Script    #"
@@ -7,7 +6,7 @@ cat <<start_content
 "#              Created by Honeytree Technologies, LLC                #"
 "#                        www.honeytreetech.com                       #"
 "#                                                                    #"
-"#                    Social: honeytree.social                        #"
+"#                    Bluesky-social/pds: honeytree.social            #"
 "#                    Email: info@honeytreetech.com                   #"
 "#                                                                    #"
 "######################################################################"
@@ -118,7 +117,7 @@ done
 INVITE_CODE=""
 # Generate invite code function
 generate_invite_code() {
-	local response
+  local response
     response=$(curl --silent \
         --show-error \
         --request POST \
@@ -190,7 +189,6 @@ ExecStop=/usr/bin/docker compose --file /pds/docker-compose.yml down
 WantedBy=default.target
 SYSTEMD_UNIT_FILE
 
-sudo systemctl daemon-reload
 
 
 cat <<docker_content > "${work_dir}/docker-compose.yml"
@@ -198,7 +196,7 @@ version: '3.8'
 services:
   pds:
     container_name: pds
-    image: ghcr.io/bluesky-social/pds:latest
+    image: ghcr.io/bluesky-social/pds:sha-bcf39c0313ace8d0adbfb464908e4f17e9075634
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -255,7 +253,9 @@ networks:
 
 docker_content
 
-docker compose -f "${work_dir}/docker-compose.yml" up -d 
+systemctl daemon-reload
+systemctl enable pds
+systemctl restart pds
 
 
 # Setting up the nginx 
@@ -513,7 +513,6 @@ systemctl restart sshd
 
 # Turn on automatic security updates.
 sudo dpkg-reconfigure -plow unattended-upgrades --unseen-only
-
 # set up a firewall with ufw.
 sudo apt-get install ufw
 sudo ufw default allow outgoing
@@ -1513,4 +1512,3 @@ echo "database user: ${db_user}, password: ${db_password} and database: ${db_nam
 echo "Invite code: $INVITE_CODE and PDS Admin password: $PDS_ADMIN_PASSWORD"
 echo "The Bluesky-social/pds instance can be accessed on https://${domain_name}"
 echo "Now SSH port is ${ssh_port}"
-
