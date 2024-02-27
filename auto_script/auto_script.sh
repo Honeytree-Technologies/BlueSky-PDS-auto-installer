@@ -60,7 +60,14 @@ validate_port() {
     fi
 }
 
-
+while true; do
+  read -p "Enter admin email: " admin_email
+  if [ -n "$admin_email" ]; then
+    break
+  else
+    echo "Admin email cannot be empty. Please enter admin email."
+  fi
+done
 
 while true; do
   read -p "Enter valid domain name: " domain_name
@@ -70,29 +77,6 @@ while true; do
     echo "Domain cannot be empty. Please enter domain."
   fi
 done
-
-temp_user="pds_$(random_string 8)"
-read -p "Enter the DB user name (Default: ${temp_user}): " db_user
-if [ -z "${db_user}" ]; then
-  db_user=${temp_user}
-fi
-
-
-temp_password="pass_$(random_string 16)"
-read -p "Enter the DB password (Default: ${temp_password}): " db_password
-if [ -z "${db_password}" ]; then
-  db_password=${temp_password}
-fi
-echo "Your db password is ${db_password}"
-
-
-temp_db="pds_$(random_string 8)"
-read -p "Enter the DB NAME (Default: ${temp_db}): " db_name
-if [ -z ${db_name} ] ; then
-  db_name=${temp_db}
-fi
-echo "Your db name is ${db_name}"
-
 
 while true; do
   read -p "Enter new ssh port number (1-65535, excluding 80, 443, and 3000): " port
@@ -114,31 +98,6 @@ while true; do
 done
 
 
-INVITE_CODE=""
-# Generate invite code function
-generate_invite_code() {
-  local response
-    response=$(curl --silent \
-        --show-error \
-        --request POST \
-        --user "admin:${PDS_ADMIN_PASSWORD}" \
-        --header "Content-Type: application/json" \
-        --data '{"useCount": 1}' \
-        "https://${domain_name}/xrpc/com.atproto.server.createInviteCode")
-
-    # Check if the curl command was successful
-    if [ $? -eq 0 ]; then
-        # Check if the response contains a code
-        if [[ "$response" =~ "code" ]]; then
-            INVITE_CODE=$(echo "$response" | jq -r '.code')
-            echo "Invite code generated successfully: $INVITE_CODE"
-        else
-            echo "Failed to generate invite code. Response: $response"
-        fi
-    else
-        echo "Failed to execute curl command."
-    fi
-}
 
 
 PDS_JWT_SECRET="$(openssl rand --hex 16)"
@@ -152,9 +111,10 @@ if docker -v &>/dev/null; then
   sudo docker rm -f $(docker ps -a -q)
 fi
 
+
 # Install a new version of Docker
 sudo apt-get update -y
-sudo apt-get install -y ca-certificates curl gnupg lsb-release
+sudo apt-get install -y ca-certificates curl gnupg lsb-release openssl sqlite3 xxd
 if test -f /usr/share/keyrings/docker-archive-keyring.gpg; then
   sudo rm /usr/share/keyrings/docker-archive-keyring.gpg
 fi
@@ -162,13 +122,52 @@ curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt-get update -y
 sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose
-sudo apt  install jq
-sudo apt  install curl
+sudo apt  install jq -y
+sudo apt  install curl -y 
 work_dir=/pds
 sudo rm -rf "${work_dir}"
-mkdir "${work_dir}"
-touch "${work_dir}/docker-compose.yml"
 touch "/etc/systemd/system/pds.service"
+
+
+# Create data directory.
+#
+if ! [[ -d "${work_dir}" ]]; then
+  echo "* Creating data directory ${work_dir}"
+  mkdir --parents "${work_dir}"
+fi
+chmod 700 "${work_dir}"
+
+#
+# Configure Caddy
+#
+if ! [[ -d "${work_dir}/caddy/data" ]]; then
+  echo "* Creating Caddy data directory"
+  mkdir --parents "${work_dir}/caddy/data"
+fi
+if ! [[ -d "${work_dir}/caddy/etc/caddy" ]]; then
+  echo "* Creating Caddy config directory"
+  mkdir --parents "${work_dir}/caddy/etc/caddy"
+fi
+
+echo "* Creating Caddy config file"
+cat <<CADDYFILE >"${work_dir}/caddy/etc/caddy/Caddyfile"
+{
+  email ${admin_email}
+  on_demand_tls {
+    ask http://localhost:3000/tls-check
+  }
+  log {
+    output file /var/log/caddy/access.log
+  }
+}
+
+*.${domain_name}, ${domain_name} {
+tls {
+  on_demand
+}
+reverse_proxy http://localhost:3000
+}
+CADDYFILE
 
 
 cat <<SYSTEMD_UNIT_FILE > "/etc/systemd/system/pds.service"
@@ -182,8 +181,8 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/pds
-ExecStart=/usr/bin/docker compose --file /pds/docker-compose.yml up --detach
-ExecStop=/usr/bin/docker compose --file /pds/docker-compose.yml down
+ExecStart=/usr/bin/docker compose --file /pds/compose.yaml up --detach
+ExecStop=/usr/bin/docker compose --file /pds/compose.yaml down
 
 [Install]
 WantedBy=default.target
@@ -191,51 +190,40 @@ SYSTEMD_UNIT_FILE
 
 
 
-cat <<docker_content > "${work_dir}/docker-compose.yml"
-version: '3.8'
+
+
+cat <<docker_content > "${work_dir}/compose.yaml"
+version: '3.9'
 services:
+  caddy:
+    container_name: caddy
+    image: caddy:2
+    network_mode: host
+    depends_on:
+      - pds
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /pds/caddy/data
+        target: /data
+      - type: bind
+        source: /pds/caddy/etc/caddy
+        target: /etc/caddy
   pds:
     container_name: pds
-    image: ghcr.io/bluesky-social/pds:sha-bcf39c0313ace8d0adbfb464908e4f17e9075634
-    ports:
-      - "3000:3000"
+    image: ghcr.io/bluesky-social/pds:0.4
+    network_mode: host
     restart: unless-stopped
-    environment:
-      - PDS_HOSTNAME=${domain_name}
-      - PDS_JWT_SECRET=${PDS_JWT_SECRET}
-      - PDS_ADMIN_PASSWORD=${PDS_ADMIN_PASSWORD}
-      - PDS_BLOBSTORE_DISK_LOCATION=/pds/blocks
-      - PDS_DID_PLC_URL=https://plc.bsky-sandbox.dev
-      - PDS_BSKY_APP_VIEW_URL=https://api.bsky-sandbox.dev
-      - PDS_BSKY_APP_VIEW_DID=did:web:api.bsky-sandbox.dev
-      - PDS_CRAWLERS=https://bgs.bsky-sandbox.dev
-      - PDS_REPO_SIGNING_KEY_K256_PRIVATE_KEY_HEX=${PDS_REPO_SIGNING_KEY_K256_PRIVATE_KEY_HEX}
-      - PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX=${PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX}
-      # Use a single environment variable for PostgreSQL connection URL
-      - PDS_DB_POSTGRES_URL=postgresql://${db_user}:${db_password}@db:5432/${db_name}
     volumes:
-      - ./data/pds-data:/pds-data
-    depends_on:
-      - db
-    networks:
-      - pds_network
-
-  db:
-    container_name: db
-    image: postgres:latest
-    environment:
-      POSTGRES_USER: ${db_user}
-      POSTGRES_PASSWORD: ${db_password}
-      POSTGRES_DB: ${db_name}
-    restart: always
-    volumes:
-      - ./data/data-db:/var/lib/postgresql/data
-    networks:
-      - pds_network
-
+      - type: bind
+        source: /pds
+        target: /pds
+    env_file:
+      - /pds/pds.env
   watchtower:
     container_name: watchtower
     image: containrrr/watchtower:latest
+    network_mode: host
     volumes:
       - type: bind
         source: /var/run/docker.sock
@@ -244,99 +232,37 @@ services:
     environment:
       WATCHTOWER_CLEANUP: true
       WATCHTOWER_SCHEDULE: "@midnight"
-    networks:
-      - pds_network
-
-networks:
-  pds_network:
-    driver: bridge
 
 docker_content
+
+cat <<es_env >> ${work_dir}/pds.env
+PDS_HOSTNAME=${domain_name}
+PDS_DATA_DIRECTORY=${work_dir}
+PDS_JWT_SECRET=${PDS_JWT_SECRET}
+PDS_ADMIN_PASSWORD=${PDS_ADMIN_PASSWORD}
+PDS_BLOBSTORE_DISK_LOCATION=/pds/blocks
+PDS_DID_PLC_URL=https://plc.bsky-sandbox.dev
+PDS_BSKY_APP_VIEW_URL=https://api.bsky-sandbox.dev
+PDS_BSKY_APP_VIEW_DID=did:web:api.bsky-sandbox.dev
+PDS_CRAWLERS=https://bgs.bsky-sandbox.dev
+PDS_REPO_SIGNING_KEY_K256_PRIVATE_KEY_HEX=${PDS_REPO_SIGNING_KEY_K256_PRIVATE_KEY_HEX}
+PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX=${PDS_PLC_ROTATION_KEY_K256_PRIVATE_KEY_HEX}
+PDS_REPORT_SERVICE_URL="https://mod.bsky.app"
+PDS_REPORT_SERVICE_DID="did:plc:ar7c4by46qjdydhdevvrndac"
+LOG_ENABLED=true
+es_env
+
+
+
 
 systemctl daemon-reload
 systemctl enable pds
 systemctl restart pds
 
 
-# Setting up the nginx 
-
-if nginx -v &>/dev/null; then
-  echo "Nginx is already install installed"
-  rm /etc/nginx/sites-available/pds
-  rm /etc/nginx/sites-enabled/pds
-else
-  sudo apt-get update
-  sudo apt-get install -y nginx
-fi
-
-# make the nginx file for the application 
-touch /etc/nginx/sites-available/pds 
-
-cat <<nginx_content >>/etc/nginx/sites-available/pds
-server {
-
-    server_name ${domain_name};
-
-
-
-    proxy_set_header Host \$host;
-
-    proxy_set_header X-Real-IP \$remote_addr;
-
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-
-    proxy_set_header X-Forwarded-Proto \$scheme;
-
-    proxy_set_header Proxy "";
-
-    proxy_http_version 1.1;
-
-    proxy_set_header Upgrade \$http_upgrade;
-
-    proxy_set_header Connection "upgrade";
-
-
-
-        location / {
-
-            proxy_pass http://localhost:3000;
-
-            proxy_pass_header Server;
-
-
-
-            proxy_buffering on;
-
-            proxy_redirect off;
-
-        }
-
-}
-
-nginx_content
-
-
-sudo ln -s /etc/nginx/sites-available/pds /etc/nginx/sites-enabled/
-sudo systemctl restart nginx
-sudo ufw allow 'Nginx Full'
-
-systemctl restart nginx
-
-# Secure Mastodon with Let's Encrypt SSL
-sudo apt-get install -y certbot python3-certbot-nginx
-
-# Generate the ssl certificate for domain
-sudo certbot --nginx -d ${domain_name}
-
-systemctl restart nginx
-
 # change ssh port
 sudo cp /etc/ssh/ssh_config /etc/ssh/ssh_config_copy
 sudo rm /etc/ssh/ssh_config
-
-sleep 20
-
-generate_invite_code 
 
 
 cat <<ssh_content >> /etc/ssh/ssh_config
@@ -521,6 +447,8 @@ sudo ufw allow ${ssh_port}/tcp comment 'SSH'
 sudo ufw allow http comment 'HTTP'
 sudo ufw allow https comment 'HTTPS'
  yes | sudo ufw enable
+
+
 
  # Install Fail2Ban
 sudo apt-get install -y fail2ban
@@ -1506,9 +1434,25 @@ fail2ban_ban
 
 
 # Restart the fail2ban service.
-sudo systemctl restart fail2ban
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+
+echo "* Downloading pdsadmin"
+curl \
+  --silent \
+  --show-error \
+  --fail \
+  --output "/usr/local/bin/pdsadmin" \
+  "https://raw.githubusercontent.com/bluesky-social/pds/main/pdsadmin.sh"
+chmod +x /usr/local/bin/pdsadmin
+
+CREATE_ACCOUNT_PROMPT=""
+  read -p "Create a PDS user account? (y/N): " CREATE_ACCOUNT_PROMPT
+
+  if [[ "${CREATE_ACCOUNT_PROMPT}" =~ ^[Yy] ]]; then
+    pdsadmin account create
+  fi
+
 echo "Congratulations your setup is done"
-echo "database user: ${db_user}, password: ${db_password} and database: ${db_name}"
-echo "Invite code: $INVITE_CODE and PDS Admin password: $PDS_ADMIN_PASSWORD"
 echo "The Bluesky-social/pds instance can be accessed on https://${domain_name}"
 echo "Now SSH port is ${ssh_port}"
